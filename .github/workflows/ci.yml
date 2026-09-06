@@ -1,0 +1,33 @@
+name: ci
+
+# Runs the same gate on human pull requests. The daily job already ran the gate
+# on its own branch before merging, so bot pull requests skip this.
+on:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec playwright install --with-deps chromium
+      - run: pnpm gate
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: gate-report
+          path: playwright-report/
+          retention-days: 7

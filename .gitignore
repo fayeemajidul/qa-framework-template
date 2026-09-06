@@ -1,0 +1,16 @@
+node_modules/
+dist/
+target/
+.env
+.env.local
+*.log
+test-results/
+playwright-report/
+blob-report/
+allure-results/
+allure-report/
+cypress/screenshots/
+cypress/videos/
+.DS_Store
+.idea/
+.vscode/

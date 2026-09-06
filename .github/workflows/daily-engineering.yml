@@ -1,0 +1,120 @@
+name: daily-engineering
+
+# One real unit of engineering per day, Monday to Saturday.
+# This runs entirely on GitHub's servers. It does not need any machine of mine
+# to be awake, online, or even switched on.
+#
+# The gate of record runs in THIS workflow, not inside the agent, so nothing
+# lands unless lint, typecheck, unit tests and the smoke suite actually pass.
+on:
+  schedule:
+    # 10:23 UTC is about 06:23 New York in summer and 05:23 in winter.
+    # An odd minute on purpose: GitHub drops scheduled runs queued on the hour.
+    - cron: '23 10 * * 1-6'
+  workflow_dispatch:
+    inputs:
+      item:
+        description: 'Force a specific roadmap item, for example PW-07'
+        required: false
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+concurrency:
+  group: daily-engineering
+  cancel-in-progress: false
+
+env:
+  SITE_URL: ${{ vars.SITE_URL }}
+  GH_TOKEN: ${{ github.token }}
+  GIT_AUTHOR_NAME: Fayeem Mooktadeer
+  GIT_AUTHOR_EMAIL: 76803185+fayeemajidul@users.noreply.github.com
+  GIT_COMMITTER_NAME: Fayeem Mooktadeer
+  GIT_COMMITTER_EMAIL: 76803185+fayeemajidul@users.noreply.github.com
+
+jobs:
+  daily:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install browsers
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Set run paths
+        run: |
+          echo "DAILY_SUMMARY=${{ runner.temp }}/daily-summary.md" >> "$GITHUB_ENV"
+          echo "GATE_LOG=${{ runner.temp }}/gate.log" >> "$GITHUB_ENV"
+
+      - name: Is the target site up
+        id: site
+        run: scripts/daily/site-health.sh "$SITE_URL"
+
+      - name: Repair yesterday or start today
+        id: mode
+        run: scripts/daily/pick-mode.sh "${{ inputs.item }}"
+
+      - name: Check for a failure streak
+        run: scripts/daily/streak-check.sh
+
+      - name: One unit of engineering
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          prompt: |
+            Read AGENTS.md in full, then ROADMAP.md.
+
+            MODE=${{ steps.mode.outputs.mode }}
+            ATTEMPT=${{ steps.mode.outputs.attempt }}
+            SITE_UP=${{ steps.site.outputs.site_up }}
+            FORCED_ITEM=${{ inputs.item }}
+            DAILY_SUMMARY=${{ env.DAILY_SUMMARY }}
+
+            Do exactly one roadmap item, following every rule in AGENTS.md.
+            Apply the priority order in section 3 to choose it.
+            Run the gate command until it passes.
+            Then write the summary file to DAILY_SUMMARY in the section 7 format,
+            flip that one checkbox in ROADMAP.md, and stop.
+
+            Do not run git commit, git push, gh, or curl. The workflow lands the work.
+          claude_args: |
+            --model claude-sonnet-5
+            --max-turns 60
+            --allowedTools "Read,Write,Edit,Glob,Grep,Bash(pnpm:*),Bash(npx:*),Bash(node:*),Bash(git status:*),Bash(git diff:*),Bash(git log:*),Bash(ls:*),Bash(cat:*),Bash(head:*),Bash(tail:*),Bash(mkdir:*)"
+            --disallowedTools "WebSearch,Bash(git commit:*),Bash(git push:*),Bash(git checkout:*),Bash(gh:*),Bash(curl:*),Bash(rm:*)"
+
+      - name: Gate of record
+        run: |
+          set -o pipefail
+          pnpm gate 2>&1 | tee "$GATE_LOG"
+
+      - name: Change guard
+        run: scripts/daily/change-guard.sh
+
+      - name: Land it
+        env:
+          DAILY_BRANCH: ${{ steps.mode.outputs.branch }}
+          DAILY_PR: ${{ steps.mode.outputs.pr }}
+        run: scripts/daily/land.sh
+
+      - name: Park the day
+        if: failure()
+        env:
+          DAILY_BRANCH: ${{ steps.mode.outputs.branch }}
+          DAILY_PR: ${{ steps.mode.outputs.pr }}
+          DAILY_ATTEMPT: ${{ steps.mode.outputs.attempt }}
+        run: scripts/daily/park.sh

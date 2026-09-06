@@ -1,0 +1,61 @@
+name: nightly
+
+# The honest badge. Runs the full suite against the real target site every night
+# and publishes the report publicly, so the badge on the README reflects reality
+# rather than the last time somebody remembered to run the tests.
+on:
+  schedule:
+    - cron: '17 1 * * *'   # about 21:17 New York in summer
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: write
+
+concurrency:
+  group: nightly
+
+env:
+  SITE_URL: ${{ vars.SITE_URL }}
+  GH_TOKEN: ${{ github.token }}
+
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v6
+      - name: Fetch the existing report site
+        uses: actions/checkout@v6
+        continue-on-error: true          # the very first night has no gh-pages yet
+        with:
+          ref: gh-pages
+          path: site
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec playwright install --with-deps chromium
+
+      - name: Full regression against the live site
+        id: run
+        continue-on-error: true          # a red suite must still publish its report
+        run: pnpm test:regression
+
+      - name: Build the report site
+        run: scripts/report/build-site.sh "${{ steps.run.outcome }}"
+
+      - uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./site
+          keep_files: false
+
+      - name: Track regression health
+        run: scripts/report/health-issue.sh "${{ steps.run.outcome }}"
+
+      - name: Fail the run if the suite failed
+        if: steps.run.outcome == 'failure'
+        run: exit 1
