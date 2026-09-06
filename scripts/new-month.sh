@@ -39,8 +39,12 @@ Three things only you can do now:
      authenticate at all: https://github.com/apps/claude
      Choose "Only select repositories" and add $REPO. Never grant it all repos.
 
-  2. gh secret set CLAUDE_CODE_OAUTH_TOKEN --repo $FULL
-     Paste the token from 'claude setup-token'. It never goes through chat.
+  2. Run 'claude setup-token', copy the token, then pipe it in with the
+     whitespace stripped. A pasted leading space silently breaks auth:
+
+       pbpaste | tr -d '[:space:]' | gh secret set CLAUDE_CODE_OAUTH_TOKEN --repo $FULL
+
+     The token never goes through chat.
 
   3. Register a throwaway account on $SITE, then:
      gh secret set SITE_USER --repo $FULL
