@@ -8,9 +8,10 @@ name: daily-engineering
 # lands unless lint, typecheck, unit tests and the smoke suite actually pass.
 on:
   schedule:
-    # 10:23 UTC is about 06:23 New York in summer and 05:23 in winter.
-    # An odd minute on purpose: GitHub drops scheduled runs queued on the hour.
-    - cron: '23 10 * * 1-6'
+    # 09:30 New York, all year. GitHub cron is UTC and ignores daylight saving,
+    # so both twins are registered and the "when" job below drops the wrong one.
+    - cron: '30 13 * * 1-6'   # 09:30 New York while daylight saving is active
+    - cron: '30 14 * * 1-6'   # 09:30 New York the rest of the year
   workflow_dispatch:
     inputs:
       item:
@@ -36,7 +37,28 @@ env:
   GIT_COMMITTER_EMAIL: 76803185+fayeemajidul@users.noreply.github.com
 
 jobs:
+  # Decides whether this particular fire is the one that lands on 09:30 in New
+  # York. Skipping a job leaves the run neutral, so the daylight saving twin
+  # does not send a failure email every morning.
+  when:
+    runs-on: ubuntu-latest
+    outputs:
+      go: ${{ steps.check.outputs.go }}
+    steps:
+      - id: check
+        run: |
+          hour=$(TZ=America/New_York date +%H)
+          if [ "${{ github.event_name }}" != "schedule" ] || [ "$hour" = "09" ]; then
+            echo "go=true" >> "$GITHUB_OUTPUT"
+            echo "Proceeding. New York local hour is $hour."
+          else
+            echo "go=false" >> "$GITHUB_OUTPUT"
+            echo "New York local hour is $hour, not 09. This is the daylight saving twin; skipping."
+          fi
+
   daily:
+    needs: when
+    if: needs.when.outputs.go == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 50
     steps:
