@@ -35,14 +35,18 @@ Repo created: https://github.com/$FULL
 
 Three things only you can do now:
 
-  1. gh secret set CLAUDE_CODE_OAUTH_TOKEN --repo $FULL
+  1. Install the Claude Code GitHub App on this repo, or the daily job cannot
+     authenticate at all: https://github.com/apps/claude
+     Choose "Only select repositories" and add $REPO. Never grant it all repos.
+
+  2. gh secret set CLAUDE_CODE_OAUTH_TOKEN --repo $FULL
      Paste the token from 'claude setup-token'. It never goes through chat.
 
-  2. Register a throwaway account on $SITE, then:
+  3. Register a throwaway account on $SITE, then:
      gh secret set SITE_USER --repo $FULL
      gh secret set SITE_PASS --repo $FULL
 
-  3. Enable Pages on the gh-pages branch once the first nightly has run:
+  4. Enable Pages on the gh-pages branch once the first nightly has run:
      gh api -X POST repos/$FULL/pages -f 'source[branch]=gh-pages' -f 'source[path]=/'
 
 Then write ROADMAP.md with about 26 items using prefix $PREFIX, and do item 01 by hand.
